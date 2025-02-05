@@ -1,0 +1,134 @@
+networks:
+  nginx:
+
+volumes:
+  mysql:
+  rabbitmq:
+
+services:
+  nginx:
+    image: news-portal-nginx-dev
+    build: docker/nginx
+    container_name: news_portal_nginx
+    hostname: news-portal-nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./public:/app/public:ro
+    networks:
+      - nginx
+
+  app:
+    image: news-portal-php-dev
+    build: docker/php
+    container_name: news_portal_app
+    hostname: news-portal-app
+    volumes:
+      - ./:/app
+    networks:
+      - default
+      - nginx
+    environment:
+      XDEBUG_CONFIG: idekey=PHPSTORM client_host=172.17.0.1
+      XDEBUG_MODE: debug
+      PHP_IDE_CONFIG: serverName=_
+    user: 1000:1000  # change to your user and group id
+    depends_on:
+      - mysql
+      - rabbitmq
+
+  cron:
+    image: news-portal-php-dev
+    build: docker/php
+    container_name: news_portal_cron
+    hostname: news-portal-app
+    volumes:
+      - ./:/app
+    networks:
+      - default
+      - nginx
+    environment:
+      XDEBUG_CONFIG: idekey=PHPSTORM client_host=172.17.0.1
+      XDEBUG_MODE: debug
+      PHP_IDE_CONFIG: serverName=_
+    user: 1000:1000   # change to your user and group id
+    command: php artisan schedule:run
+    depends_on:
+      - mysql
+      - rabbitmq
+
+  redis:
+    image: redis:6
+
+  reverb:
+    image: news-portal-php-dev
+    build: docker/php
+    container_name: news_portal_reverb
+    hostname: news-portal-reverb
+    volumes:
+      - ./:/app
+    networks:
+      - default
+      - nginx
+    environment:
+      XDEBUG_CONFIG: idekey=PHPSTORM client_host=172.17.0.1
+      XDEBUG_MODE: debug
+      PHP_IDE_CONFIG: serverName=_
+    user: 1000:1000   # change to your user and group id
+    command: php artisan reverb:start --debug
+    stop_signal: SIGINT
+    depends_on:
+      - redis
+      - rabbitmq
+
+  mysql:
+    image: mysql:9.1
+    container_name: news_portal_mysql
+    volumes:
+      - mysql:/var/lib/mysql
+#    ports:  # uncomment to explore database
+#      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: news
+
+  rabbitmq:
+    image: rabbitmq:4.0-management
+    hostname: rabbitmq1
+    volumes:
+      - rabbitmq:/var/lib/rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "15672:15672"
+
+  queue-default:
+    image: news-portal-php-dev
+    build: docker/php
+    container_name: news_portal_queue_default
+    hostname: news-portal-queue-default
+    volumes:
+      - ./:/app
+    environment:
+      XDEBUG_CONFIG: idekey=PHPSTORM client_host=172.17.0.1
+      XDEBUG_MODE: debug
+      PHP_IDE_CONFIG: serverName=_
+    user: 1000:1000  # change to your user and group
+    command: "php artisan rabbitmq:consume --queue=default --sleep 1 --backoff=1"
+    restart: always
+    depends_on:
+      - mysql
+      - rabbitmq
+
+  npm:
+    image: node:lts-alpine
+    volumes:
+      - .:/app
+    working_dir: /app
+    user: 1000:1000  # change to your user and group id
+    command: npm run dev
+    ports:
+      - "5173:5173"
+    networks:
+      - nginx
